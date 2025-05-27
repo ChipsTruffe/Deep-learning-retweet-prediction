@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 
-def import_data( file ):
+def import_numerical_data( file ):
     train = pd.read_csv(file)
     # only use numeric values
     X = torch.tensor(train.iloc[:, [1,3,4,5,6]].to_numpy(dtype=np.float32,na_value=0))#idc 

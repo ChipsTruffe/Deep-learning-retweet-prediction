@@ -6,7 +6,7 @@ from sklearn.model_selection import train_test_split
 import torch
 import torch.nn as nn
 from torch import optim
-from datasetAnalysis import import_data
+from datasetAnalysis import import_numerical_data
 from models import MLP
 import matplotlib.pyplot as plt
 
@@ -15,19 +15,19 @@ device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cp
 
 # Hyperparameters
 epochs = 20
-batch_size = 16
+batch_size = 64
 n_hidden_1 = 16
 n_hidden_2 = 16
 n_hidden_3 = 16
 learning_rate = 0.01
 
-X,y = import_data("/home/maloe/dev/SPEIT/Deep Learning/project/data/train.csv")
+X,y = import_numerical_data("/home/maloe/dev/SPEIT/Deep Learning/project/data/train.csv")
 
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1)
 
 
 N_train = min(100000,len(X_train))
-N_test = min(100000, len(X_test))
+N_test = min(10000, len(X_test))
 
 X_train = X_train[:N_train]
 y_train = y_train[:N_train]
@@ -37,7 +37,7 @@ y_test = y_test[:N_test]
 # Initializes model and optimizer
 model = MLP(X_train.shape[1],[n_hidden_1,n_hidden_2,n_hidden_3],1).to(device)
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-loss_function = nn.MSELoss()
+loss_function = nn.L1Loss()
 
 # Trains the model
 losses = [0]*epochs
@@ -63,7 +63,7 @@ for epoch in range(epochs):
     #if epoch % 10 == 0:
     if True:
         print('Epoch: {:04d}'.format(epoch + 1),
-              'root Mean Squared Error: {:.4f}'.format(np.sqrt(train_loss / count)),
+              'root Mean Squared Error: {:.4f}'.format(train_loss / count),
               #'acc_train: {:.4f}'.format(correct / count),
               'time: {:.4f}s'.format(time.time() - t))
 
@@ -85,11 +85,11 @@ for i in range(0, N_test, batch_size):
     count += output.size(0)
 
 print("test loss:",
-      'root MSE: {:.4f}'.format(np.sqrt(test_loss / count)),
+      'root MSE: {:.4f}'.format(test_loss / count),
       'time: {:.4f}s'.format(time.time() - t))
 plt.semilogy(range(epochs),losses)
 plt.title(f"model: MLP, hidden dims :{n_hidden_1,n_hidden_2,n_hidden_3}")
-plt.scatter([epochs],[np.sqrt(test_loss / count)], label = "test loss", c="r")
+plt.scatter([epochs],[test_loss / count], label = "test loss", c="r")
 plt.xlabel("number of epochs")
 plt.ylabel("root MSE")
 plt.legend()

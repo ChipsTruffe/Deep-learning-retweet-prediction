@@ -9,6 +9,12 @@ def import_numerical_data( file ):
     X = torch.tensor(train.iloc[:, [1,3,4,5,6]].to_numpy(dtype=np.float32,na_value=0))#idc 
     y = torch.tensor(train.iloc[:, 2].to_numpy(dtype=np.float32,na_value=0))
     return X,y
+def import_data(file):
+    train = pd.read_csv(file)
+    X_num = torch.tensor(train.iloc[:, [1,3,4,5,6]].to_numpy(dtype=np.float32,na_value=0))
+    X_text = torch.tensor(train.iloc[:,10].to_numpy(dtype=str, na_value=''))
+    y = torch.tensor(train.iloc[:, 2].to_numpy(dtype=np.float32,na_value=0))
+    return X_num, X_text ,y 
 
 
 
@@ -20,7 +26,7 @@ if __name__ == '__main__':
     [timestamp, retweet_count, user_verified, user_statuses_count, user_followers_count, user_friends_count] = np.array(train.iloc[:, 1:7])
 
 
-    toPlot = 'follower'
+    toPlot = 'followers'
     if toPlot == 'followers':
         #that's a good one
         plt.scatter(user_followers_count,retweet_count, c=user_verified)

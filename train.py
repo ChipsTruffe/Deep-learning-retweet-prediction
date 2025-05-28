@@ -6,14 +6,18 @@ from sklearn.model_selection import train_test_split
 import torch
 import torch.nn as nn
 from torch import optim
-from datasetAnalysis import import_numerical_data
-from models import MLP
+from datasetAnalysis import import_data, import_numerical_data
+from models import MLP, CombinedModelWithMLP
 import matplotlib.pyplot as plt
+
+
+mode = "transformer"
+#mode = "MLP"
 
 # Initializes device
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
-# Hyperparameters
+# Hyperparameters for MLP
 epochs = 20
 batch_size = 64
 n_hidden_1 = 6
@@ -21,9 +25,26 @@ n_hidden_2 = 6
 n_hidden_3 = 6
 learning_rate = 0.005
 
-X,y = import_numerical_data("/home/maloe/dev/SPEIT/Deep Learning/project/data/train.csv")
+# Hyperparameters for transformer + MLP
 
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1)
+vocab_size = 1000  # Size of the vocabulary
+num_heads = 4      # Number of attention heads in Transformer
+hidden_dim = 128   # Hidden dimension (nhid)
+num_layers = 3     # Number of Transformer encoder layers
+dropout_rate = 0.1
+numerical_vec_dim = 10 # Dimension of the numerical input vector
+mlp_layers = [64, 32]  # Hidden layers for the MLP
+
+batch_size = 8
+seq_length = 20
+
+if mode == "MLP":
+    X,y = import_numerical_data("/home/maloe/dev/SPEIT/Deep Learning/project/data/train.csv")
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1)
+elif mode == "transformer":
+    X_num, X_text,y = import_data("/home/maloe/dev/SPEIT/Deep Learning/project/data/train.csv")
+    X_num_train, X_num_test, y_train, y_test = train_test_split([X_num, X_text], y, test_size=0.1)
+
 
 
 N_train = min(100000,len(X_train))
@@ -35,7 +56,19 @@ X_test = X_test[:N_test]
 y_test = y_test[:N_test]
 
 # Initializes model and optimizer
-model = MLP(X_train.shape[1],[n_hidden_1,n_hidden_2,n_hidden_3],1).to(device)
+
+if mode == "MLP":
+    model = MLP(X_train.shape[1],[n_hidden_1,n_hidden_2,n_hidden_3],1).to(device)
+elif mode == "transformer":
+    model = CombinedModelWithMLP(
+            ntoken=vocab_size,
+            nhead=num_heads,
+            nhid=hidden_dim,
+            nlayers=num_layers,
+            numerical_input_dim=numerical_vec_dim,
+            mlp_hidden_dims=mlp_layers,
+            dropout=dropout_rate
+        )
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 loss_function = nn.L1Loss()
 

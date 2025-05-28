@@ -80,7 +80,7 @@ elif mode == "transformer":
     X_text_test_ids, X_text_test_masks = texts_to_sequences(X_text_test_strings, vocab, tokenizer, seq_length)
 
     # Data truncation
-    N_train = min(100000, y_train.shape[0])
+    N_train = min(1000, y_train.shape[0])
     N_test = min(10000, y_test.shape[0])
 
     X_num_train, X_text_train_ids, X_text_train_masks, y_train = \
@@ -193,9 +193,9 @@ with torch.no_grad():
             X_text_batch = X_text_test_ids[i:i+batch_size].to(device)
             X_text_masks_batch = X_text_test_masks[i:i+batch_size].to(device)
             y_batch = y_test[i:i+batch_size].to(device).float()
-            X_text_ids_batch = X_text_ids_batch.transpose(0, 1)
+            X_text_batch = X_text_batch.transpose(0, 1)
 
-            output = model(text_src_ids=X_text_ids_batch, 
+            output = model(text_src_ids=X_text_batch, 
                            num_src=X_num_batch, 
                            src_key_padding_mask=X_text_masks_batch).flatten()
 
@@ -214,7 +214,7 @@ plt.semilogy(range(1, epochs + 1), train_losses_epoch, label="Average Train Loss
 plt.scatter([epochs], [avg_test_loss], label=f"Final Avg Test Loss: {avg_test_loss:.4f}", c="r", zorder=5)
 plt.title(plot_title)
 plt.xlabel("Number of Epochs")
-plt.ylabel("Loss (PoissonNLLLoss - log scale)")
+plt.ylabel("Loss")
 plt.legend()
 plt.grid(True, which="both", ls="--", alpha=0.5)
 plt.show()

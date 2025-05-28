@@ -112,20 +112,10 @@ class TransformerModel(nn.Module):
     def init_weights(self):
         initrange = 0.1
         self.encoder.weight.data.uniform_(-initrange, initrange)
-
-    def forward(self, src, src_mask=None):
-        """
-        Args:
-            src: Tensor, shape [seq_len, batch_size]
-            src_mask: Tensor, shape [seq_len, seq_len] (optional)
-                      Mask for the source sequence.
-        
-        Returns:
-            torch.Tensor: Output of the transformer encoder, shape [seq_len, batch_size, nhid]
-        """
-        src = self.encoder(src) * math.sqrt(self.nhid) # Embed and scale
-        src = self.pos_encoder(src) # Add positional encoding
-        output = self.transformer_encoder(src, src_mask) # Pass through transformer
+    def forward(self, src, src_mask=None, src_key_padding_mask=None): 
+        src = self.encoder(src) * math.sqrt(self.nhid)
+        src = self.pos_encoder(src)
+        output = self.transformer_encoder(src, mask=src_mask, src_key_padding_mask=src_key_padding_mask)
         return output
 
 
@@ -161,27 +151,11 @@ class CombinedModelWithMLP(nn.Module):
                             hidden_dims=mlp_hidden_dims, 
                             output_dim=1) # Output a single value
 
-    def forward(self, text_src, num_src, src_mask=None):
-        """
-        Forward pass of the model.
+    def forward(self, text_src_ids, num_src, src_mask=None, src_key_padding_mask=None):
 
-        Args:
-            text_src (torch.Tensor): The input sentence tensor. 
-                                     Shape: (seq_len, batch_size)
-            num_src (torch.Tensor): The numerical input vector.
-                                    Shape: (batch_size, numerical_input_dim)
-            src_mask (torch.Tensor, optional): Mask for the `text_src` input to the Transformer.
-                                               Shape: (seq_len, seq_len) for a subsequent mask,
-                                               or (batch_size, seq_len) for a padding mask (if batch_first=True in Transformer)
-                                               Note: TransformerModel expects (seq_len, seq_len) or specific key padding mask.
-
-        Returns:
-            torch.Tensor: The final single output value from the MLP.
-                          Shape: (batch_size, 1)
-        """
         # 1. Process text input through Transformer
         # transformer_output shape: (seq_len, batch_size, nhid)
-        transformer_output = self.transformer_base(text_src, src_mask) 
+        transformer_output = self.transformer_base(text_src_ids, src_mask = src_mask,src_key_padding_mask=src_key_padding_mask) 
         
         # 2. Extract features from Transformer output.
         # A common strategy for sentence representation is to take the output 

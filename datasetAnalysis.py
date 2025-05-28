@@ -6,14 +6,14 @@ import torch
 def import_numerical_data( file ):
     train = pd.read_csv(file)
     # only use numeric values
-    X = torch.tensor(train.iloc[:, [1,3,4,5,6]].to_numpy(dtype=np.float32,na_value=0))#idc 
-    y = torch.tensor(train.iloc[:, 2].to_numpy(dtype=np.float32,na_value=0))
+    X = train.iloc[:, [1,3,4,5,6]].to_numpy(dtype=np.float32,na_value=0)#idc 
+    y = train.iloc[:, 2].to_numpy(dtype=np.float32,na_value=0)
     return X,y
 def import_data(file):
     train = pd.read_csv(file)
-    X_num = torch.tensor(train.iloc[:, [1,3,4,5,6]].to_numpy(dtype=np.float32,na_value=0))
-    X_text = torch.tensor(train.iloc[:,10].to_numpy(dtype=str, na_value=''))
-    y = torch.tensor(train.iloc[:, 2].to_numpy(dtype=np.float32,na_value=0))
+    X_num = train.iloc[:, [1,3,4,5,6]].to_numpy(dtype=np.float32,na_value=0)
+    X_text = train.iloc[:,10].to_numpy(dtype=str, na_value='')
+    y = train.iloc[:, 2].to_numpy(dtype=np.float32,na_value=0)
     return X_num, X_text ,y 
 
 

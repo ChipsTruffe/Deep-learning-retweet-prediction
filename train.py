@@ -16,10 +16,10 @@ device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cp
 # Hyperparameters
 epochs = 20
 batch_size = 64
-n_hidden_1 = 16
-n_hidden_2 = 16
-n_hidden_3 = 16
-learning_rate = 0.01
+n_hidden_1 = 6
+n_hidden_2 = 6
+n_hidden_3 = 6
+learning_rate = 0.005
 
 X,y = import_numerical_data("/home/maloe/dev/SPEIT/Deep Learning/project/data/train.csv")
 
@@ -57,13 +57,13 @@ for epoch in range(epochs):
         loss.backward()
         count += output.size(0)
         train_loss += loss.item() * output.size(0)
-        losses[epoch] = np.sqrt(train_loss / count)
+        losses[epoch] = train_loss / count
         optimizer.step()
 
     #if epoch % 10 == 0:
     if True:
         print('Epoch: {:04d}'.format(epoch + 1),
-              'root Mean Squared Error: {:.4f}'.format(train_loss / count),
+              'L1 Loss: {:.4f}'.format(train_loss / count),
               #'acc_train: {:.4f}'.format(correct / count),
               'time: {:.4f}s'.format(time.time() - t))
 

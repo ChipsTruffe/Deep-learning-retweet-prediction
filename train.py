@@ -20,15 +20,15 @@ device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cp
 print(f"Using device: {device}")
 
 # Global hyperparameters
-learning_rate = 0.01
+learning_rate = 0.1
 batch_size = 64
-epochs = 5 
+epochs = 30 
 tokenizer = clean_tokenizer
 
 # Hyperparameters for regressor
 mlp_n_hidden_1 = 64 
-mlp_n_hidden_2 = 32
-mlp_n_hidden_3 = 16 
+mlp_n_hidden_2 = 64
+mlp_n_hidden_3 = 64
 
 # Hyperparameters for text interpretor
 vocab_size = 10000  # Size of the vocabulary
@@ -48,7 +48,7 @@ train_data = pd.read_csv("/home/maloe/dev/SPEIT/Deep Learning/project/data/train
 
 # Data truncation (for ressources)
 
-N_sample = min(10000, len(train_data))
+N_sample = min(100000, len(train_data))
 train_data = train_data[:N_sample]
 
 print(f"Truncated dataset to {N_sample} samples")

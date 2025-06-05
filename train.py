@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 
 # Select mode: "MLP" or "transformer"
 #mode = "MLP"
-mode = "transformer"
+mode = "MLP"
 
 # Initializes device
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -22,16 +22,17 @@ print(f"Using device: {device}")
 
 # Global hyperparameters
 batch_size = 64
-epochs = 1 # Shared epochs
+epochs = 20 # Shared epochs
+tokenizer = clean_tokenizer
 
 # Hyperparameters for MLP
 mlp_n_hidden_1 = 64 
 mlp_n_hidden_2 = 32
 mlp_n_hidden_3 = 16 
-mlp_learning_rate = 0.005
+mlp_learning_rate = 0.1
 
 # Hyperparameters for transformer + MLP
-trans_learning_rate = 0.01 # Can be different from MLP's
+trans_learning_rate = 0.1 # Can be different from MLP's
 vocab_size = 1000  # Size of the vocabulary
 num_heads = 4      # Number of attention heads in Transformer
 hidden_dim = 32  # Hidden dimension (nhid) for Transformer
@@ -54,7 +55,7 @@ if mode == "MLP":
     X_train, y_train = X_train[:N_train], y_train[:N_train]
     X_test, y_test = X_test[:N_test], y_test[:N_test]
 
-    model = MLP(X_train.shape[1], [mlp_n_hidden_1, mlp_n_hidden_2, mlp_n_hidden_3], 1).to(device)
+    model = MLP(X_train.shape[1], [X_train.shape[1]], 1).to(device)
     optimizer = optim.Adam(model.parameters(), lr=mlp_learning_rate)
     plot_title = f"Model: MLP, Hidden Dims: ({mlp_n_hidden_1},{mlp_n_hidden_2},{mlp_n_hidden_3})"
 
@@ -72,6 +73,7 @@ elif mode == "transformer":
      # Build vocabulary from training text strings
     print("Building vocabulary for transformer mode...")
     vocab = build_vocab(X_text_train_strings, tokenizer, max_vocab_size)
+    vocab = {key: value[0] for key, value in vocab.items()} #discard the tokens frequency
     actual_ntoken = len(vocab) # actual vocab size
 
     # Convert text strings to sequences of IDs and padding masks
@@ -80,7 +82,7 @@ elif mode == "transformer":
     X_text_test_ids, X_text_test_masks = texts_to_sequences(X_text_test_strings, vocab, tokenizer, seq_length)
 
     # Data truncation
-    N_train = min(1000, y_train.shape[0])
+    N_train = min(10000, y_train.shape[0])
     N_test = min(10000, y_test.shape[0])
 
     X_num_train, X_text_train_ids, X_text_train_masks, y_train = \

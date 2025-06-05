@@ -26,6 +26,13 @@ def MLP(input_dim, hidden_dims, output_dim):
         )
         model.add_module("relu_" + str(i), nn.ReLU())
     model.add_module("output", nn.Linear(hidden_dims[-1], output_dim))
+
+    for module in model.modules(): ##tous les poids à 0 par défaut
+        if hasattr(module, 'weight') and module.weight is not None:
+            nn.init.constant_(module.weight, 0)
+        if hasattr(module, 'bias') and module.bias is not None:
+            nn.init.constant_(module.bias, 0)
+
     return model
 
 

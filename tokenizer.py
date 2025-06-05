@@ -1,23 +1,52 @@
-
+from utils import *
 import torch
+import re
+import string
 from collections import Counter
-
+import pandas as pd
 # --- Tokenization and Vocabulary Helper Functions ---
 PAD_TOKEN = '<pad>'
 UNK_TOKEN = '<unk>'
 
-def tokenizer(text):
+
+
+def hashtag_tokenizer(text):
+    if pd.isna(text):
+        return []
+    return text.lower().split(",")
+def space_tokenizer(text):
     """Basic word tokenizer: lowercase and split by space."""
     return text.lower().split()
+def clean_tokenizer(text):
+    """lowercase, removes punctuation, removes hashtags, splits by spaces, splits words longer than 6"""
 
-def build_vocab(texts, tokenizer_fn, max_vocab_size, min_freq=1):
-    """Builds a vocabulary from a list of texts."""
+
+    current_text = text.lower()
+
+    # 2. Remove punctuation
+
+    translator = str.maketrans('', '', string.punctuation)
+    current_text = current_text.translate(translator)
+    words = current_text.split()
+
+    final_tokens = []
+    for word in words:
+        while len(word) > 4: #splits words in maximum 6 char sections
+            final_tokens.append(word[:4])
+            word = word[4:]
+        final_tokens.append(word)
+    
+    return final_tokens
+
+def build_vocab(texts, tokenizer_fn, max_vocab_size , min_freq=1):
+    """Builds a vocabulary from a dataframe of texts."""
     token_counts = Counter()
-    for text in texts:
+    for k in range(len(texts)):
+        text = stringFlatten(texts.iloc[k].to_list()) #takes all strings an return a single one, separated by commas
         tokens = tokenizer_fn(text)
         token_counts.update(tokens)
 
-    vocab = {PAD_TOKEN: 0, UNK_TOKEN: 1}
+    vocab = {PAD_TOKEN: (0,1), UNK_TOKEN: (1,1)}
     token_id_counter = 2  # Start after PAD and UNK
 
     # Sort tokens by frequency, most common first
@@ -26,21 +55,22 @@ def build_vocab(texts, tokenizer_fn, max_vocab_size, min_freq=1):
     for token, count in sorted_tokens:
         if token_id_counter >= max_vocab_size:
             break
-        if count >= min_freq: # Optionally filter by minimum frequency
-            vocab[token] = token_id_counter
+        if count >= min_freq: #filter by minimum frequency
+            vocab[token] = (token_id_counter,count)
             token_id_counter += 1
-    print(f"Vocabulary built with {len(vocab)} tokens (max_vocab_size was {max_vocab_size}).")
+    print(f"Vocabulary built with {len(vocab)} tokens (max vocab size was {max_vocab_size}).")
     return vocab
 
 def texts_to_sequences(texts, vocab, tokenizer_fn, max_seq_len):
-    """Converts texts to padded sequences of token IDs and generates padding masks."""
+    """Converts dataframe of texts to padded sequences of token IDs and generates padding masks."""
     pad_id = vocab[PAD_TOKEN]
     unk_id = vocab.get(UNK_TOKEN) 
 
     sequences = []
     padding_masks = []
 
-    for text in texts:
+    for k in range(len(texts)):
+        text = stringFlatten(texts.iloc[k].to_list())
         tokens = tokenizer_fn(text)
         token_ids = [vocab.get(token, unk_id) for token in tokens]
 

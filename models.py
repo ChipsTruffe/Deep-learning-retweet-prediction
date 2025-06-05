@@ -22,10 +22,17 @@ def MLP(input_dim, hidden_dims, output_dim):
     for i in range(1, len(hidden_dims)):
         model.add_module(
             "linear_" + str(i), 
-            nn.Linear(hidden_dims[i-1], hidden_dims[i]) # Removed trailing comma
+            nn.Linear(hidden_dims[i-1], hidden_dims[i])
         )
         model.add_module("relu_" + str(i), nn.ReLU())
     model.add_module("output", nn.Linear(hidden_dims[-1], output_dim))
+
+    for module in model.modules(): ##tous les poids à 0 par défaut
+        if hasattr(module, 'weight') and module.weight is not None:
+            nn.init.constant_(module.weight, 0)
+        if hasattr(module, 'bias') and module.bias is not None:
+            nn.init.constant_(module.bias, 0)
+
     return model
 
 
@@ -118,7 +125,104 @@ class TransformerModel(nn.Module):
         output = self.transformer_encoder(src, mask=src_mask, src_key_padding_mask=src_key_padding_mask)
         return output
 
+class myLSTM(nn.Module):
+    def __init__(self, vocab_size, embedding_dim, hidden_dim, output_dim, num_layers=1, 
+                 bidirectional=False, padding_idx=None):
+        """
+        LSTM Text Processing Model
+        Args:
+            vocab_size: Size of vocabulary
+            embedding_dim: Dimension of word embeddings
+            hidden_dim: LSTM hidden state dimension
+            output_dim: Dimension of output vector
+            num_layers: Number of LSTM layers
+            bidirectional: Use bidirectional LSTM
+            padding_idx: Padding index for embedding layer
+        """
+        super().__init__()
+        self.embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=padding_idx)
+        
+        # LSTM configuration
+        self.num_layers = num_layers
+        self.bidirectional = bidirectional
+        self.hidden_dim = hidden_dim
+        
+        # Create LSTM layer
+        self.lstm = nn.LSTM(
+            input_size=embedding_dim,
+            hidden_size=hidden_dim,
+            num_layers=num_layers,
+            bidirectional=bidirectional,
+            batch_first=True
+        )
+        
+        # Calculate output dimension after LSTM
+        lstm_output_dim = hidden_dim * (2 if bidirectional else 1)
+        
+        # Final projection layer
+        self.fc = nn.Linear(lstm_output_dim, output_dim)
 
+    def forward(self, input):
+        """
+        Forward pass
+        Args:
+            input_ids: (batch_size, seq_len) tensor of token ids
+            padding_mask: (batch_size, seq_len) mask (1 = real token, 0 = pad)
+        Returns:
+            output: (batch_size, output_dim) tensor
+        """
+        input_ids, padding_mask = input[0], input[1]
+
+        
+        #get device from input_ids
+        device = input_ids.device
+
+        # Calculate sequence lengths from mask
+        lengths = len(padding_mask[0]) - padding_mask.sum(dim=1)
+
+        # Sort sequences by length (descending)
+        lengths_sorted, sort_idx = torch.sort(lengths, descending=True)
+        input_ids_sorted = input_ids[sort_idx]
+
+        # Embed tokens
+        embedded = self.embedding(input_ids_sorted)
+
+        # Convert lengths to CPU for pack_padded_sequence
+        packed_embedded = nn.utils.rnn.pack_padded_sequence(
+            embedded,
+            lengths_sorted.cpu(),  # Must be on CPU
+            batch_first=True,
+            enforce_sorted=True
+        )
+        # Process with LSTM
+        packed_output, (hidden, cell) = self.lstm(packed_embedded)
+
+        # Extract final hidden states
+        if self.bidirectional or self.num_layers > 1:
+            # Extract last layer hidden states
+            if self.bidirectional:
+                # Separate directions and layers
+                hidden = hidden.view(self.num_layers, 2, -1, self.hidden_dim)
+                # Take last layer's forward and backward states
+                h_forward = hidden[-1, 0]  # (batch, hidden_dim)
+                h_backward = hidden[-1, 1]  # (batch, hidden_dim)
+                # Concatenate both directions
+                h_final = torch.cat((h_forward, h_backward), dim=1)
+            else:
+                # Take last layer's hidden state
+                h_final = hidden[-1]  # (batch, hidden_dim)
+        else:
+            # Single layer, single direction
+            h_final = hidden.squeeze(0)
+
+        # Project to output dimension
+        output_sorted = self.fc(h_final)
+
+        # Restore original batch order
+        _, unsort_idx = torch.sort(sort_idx)
+        output = output_sorted[unsort_idx]
+
+        return output
 class CombinedModelWithMLP(nn.Module):
     """
     Model that processes a sentence with a Transformer, gets a representation,
@@ -176,65 +280,26 @@ class CombinedModelWithMLP(nn.Module):
         
         return output
 
-if __name__ == '__main__':
-    # Example Usage (Illustrative)
+class finalModel(nn.Module):
     
-    # Parameters
-    vocab_size = 1000  # Size of the vocabulary
-    num_heads = 4      # Number of attention heads in Transformer
-    hidden_dim = 128   # Hidden dimension (nhid)
-    num_layers = 3     # Number of Transformer encoder layers
-    dropout_rate = 0.1
-
-    numerical_vec_dim = 10 # Dimension of the numerical input vector
-    mlp_layers = [64, 32]  # Hidden layers for the MLP
+    def __init__(self, TextInterpreter, Regressor, *args, **kwargs ):
+        """
+        Combines a text model (ex : LSTM) with an interpretor(ex : MLP).
+        Both should have a forward() method taking a vector in (vectorized text or latent representation) and outputting a vector.
+        The regressor should output a int representing the expected number of retweets.
+        Both model should have compatible sizes, i.e the output of text interpretor concatenated to the value vector should have the input dimention
+        of the regressor
+        
+        """
+        super().__init__(*args, **kwargs)
+        self.TextInterpreter = TextInterpreter
+        self.Regressor = Regressor
     
-    batch_size = 8
-    seq_length = 20
+    def forward(self, text_vector, value_vector):
+        latent_text = self.TextInterpreter(text_vector)
+        latent_x = torch.cat((latent_text,value_vector), dim = 1) ##CHECK LA DIMENSION DE CONCATENATION
+        output = self.Regressor(latent_x)
+        return output
 
-    # Instantiate the model
-    model = CombinedModelWithMLP(
-        ntoken=vocab_size,
-        nhead=num_heads,
-        nhid=hidden_dim,
-        nlayers=num_layers,
-        numerical_input_dim=numerical_vec_dim,
-        mlp_hidden_dims=mlp_layers,
-        dropout=dropout_rate
-    )
 
-    # Create dummy input data
-    # Text input (batch_size, seq_length) -> (seq_length, batch_size) for Transformer
-    dummy_text_input = torch.randint(0, vocab_size, (seq_length, batch_size))
-    
-    # Numerical input vector (batch_size, numerical_vec_dim)
-    dummy_numerical_input = torch.randn(batch_size, numerical_vec_dim)
-    
-    # Optional: Source mask (e.g., for preventing attention to future tokens)
-    # For this example, we might not need a complex mask if just taking first token output,
-    # but if the transformer part is pre-trained or used for other purposes, it might be.
-    # For simplicity, let's pass None or a basic mask.
-    # A square subsequent mask:
-    # src_mask = model.transformer_base.generate_square_subsequent_mask(seq_length) 
-    # src_mask = src_mask.to(dummy_text_input.device) # Move mask to the same device as input
-    # Or, if no specific masking is needed for this type of feature extraction:
-    src_mask = None
 
-    # Forward pass
-    try:
-        output = model(dummy_text_input, dummy_numerical_input, src_mask)
-        print("Model instantiated successfully.")
-        print("Input text shape:", dummy_text_input.shape)
-        print("Input numerical vector shape:", dummy_numerical_input.shape)
-        print("Output shape:", output.shape) # Expected: (batch_size, 1)
-        print("Example output:", output)
-    except Exception as e:
-        print(f"Error during model usage: {e}")
-
-    # Example of using the original TransformerModel and ScoringHead (if needed separately)
-    # transformer_only = TransformerModel(vocab_size, num_heads, hidden_dim, num_layers, dropout_rate)
-    # transformer_out = transformer_only(dummy_text_input, src_mask) # (seq_len, batch_size, nhid)
-    # features_for_scoring = transformer_out[0, :, :] # (batch_size, nhid)
-    # scoring_head = ScoringHead(hidden_dim)
-    # scores = scoring_head(features_for_scoring) # (batch_size, 1)
-    # print("\nSeparate ScoringHead output shape:", scores.shape)

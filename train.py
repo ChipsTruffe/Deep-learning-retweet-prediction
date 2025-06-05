@@ -1,18 +1,18 @@
 import time
 import numpy as np
-from sklearn.model_selection import train_test_split
+
 import torch
 import torch.nn as nn
 from torch import optim
-from datasetAnalysis import import_data, import_numerical_data
+
 from models import finalModel, myLSTM, MLP
 from tokenizer import *
 from utils import *
 
-import math
-from verstack.stratified_continuous_split import scsplit # pip install verstack
+
 
 import matplotlib.pyplot as plt
+import csv
 
 
 # Initializes device
@@ -20,15 +20,14 @@ device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cp
 print(f"Using device: {device}")
 
 # Global hyperparameters
+# 
 learning_rate = 0.1
 batch_size = 64
-epochs = 30 
+epochs = 10
 tokenizer = clean_tokenizer
 
 # Hyperparameters for regressor
-mlp_n_hidden_1 = 64 
-mlp_n_hidden_2 = 64
-mlp_n_hidden_3 = 64
+mlp_hidden = [16]
 
 # Hyperparameters for text interpretor
 vocab_size = 10000  # Size of the vocabulary
@@ -38,7 +37,7 @@ embedding_dim = 64
 
 lstm_hidden_dim = 64
 lstm_layers = 2
-lstm_output_dim = 16
+lstm_output_dim = 2
 output_dim = 16 #arbitraire
 max_vocab_size = 10000
 
@@ -47,34 +46,13 @@ max_vocab_size = 10000
 train_data = pd.read_csv("/home/maloe/dev/SPEIT/Deep Learning/project/data/train.csv")
 
 # Data truncation (for ressources)
+N_sample = min(10000, len(train_data))
 
-N_sample = min(100000, len(train_data))
-train_data = train_data[:N_sample]
-
-print(f"Truncated dataset to {N_sample} samples")
-
+X_text_train, X_text_test, X_num_train, X_num_test, y_train, y_test = split_data(train_data, N_sample)
+#2 - Convert text to vectorized representation
 
 
-X_train, X_test, y_train, y_test = scsplit(train_data, train_data['retweet_count'], stratify=train_data['retweet_count'], train_size=0.7, test_size=0.3)
-X_train = X_train.drop(['retweet_count'], axis=1)
-X_test = X_test.drop(['retweet_count'], axis=1)
-
-
-#Split data between text and scalar
-X_text_train = X_train[['urls','hashtags','text']]
-X_num_train = X_train[['timestamp', 'user_verified', 'user_statuses_count','user_followers_count','user_friends_count']].to_numpy(dtype = float)
-X_text_test = X_test[['urls','hashtags','text']]
-X_num_test = X_test[['timestamp', 'user_verified', 'user_statuses_count','user_followers_count','user_friends_count']].to_numpy(dtype = float)
-
-#send to torch
-
-X_num_train = torch.from_numpy(X_num_train).float()
-X_num_test = torch.from_numpy(X_num_test).float()
-y_train = torch.from_numpy(y_train.to_numpy()).float()
-y_test = torch.from_numpy(y_test.to_numpy()).float()
-
-
-# Build vocabulary from training text strings
+#Build vocabulary from training text strings
 print("Building vocabulary...") #long af cause doing on the full set every time (annoying)
 vocab = build_vocab(X_text_train, tokenizer, vocab_size)
 vocab = {key: value[0] for key, value in vocab.items()} #discard the tokens frequency
@@ -96,10 +74,11 @@ textInterpretor = myLSTM(vocab_size,
                         bidirectional= False,
                         padding_idx= vocab['<pad>']).to(device)
 regressor = MLP(lstm_output_dim + numerical_vec_dim,
-                [mlp_n_hidden_1,mlp_n_hidden_2,mlp_n_hidden_3],
+                mlp_hidden,
                 1).to(device)
 
 model = finalModel(textInterpretor, regressor).to(device)
+randomize_model_weights(model) #to avoid having the model start at 0
 
 optimizer = optim.Adam(model.parameters(recurse=True), lr=learning_rate)
 
@@ -189,4 +168,47 @@ plt.xlabel("Number of Epochs")
 plt.ylabel("Loss")
 plt.legend()
 plt.grid(True, which="both", ls="--", alpha=0.5)
-plt.show()
+#plt.show()
+
+
+###################################
+# Once we finalized our features and model we can train it using the whole training set and then produce prediction for the evaluating dataset
+###################################
+# Load the evaluation data
+eval_data = pd.read_csv("/home/maloe/dev/SPEIT/Deep Learning/project/data/evaluation.csv")
+
+with open("gbr_predictions.txt", 'w') as f:
+    writer = csv.writer(f)
+    writer.writerow(["TweetID", "NoRetweets"])
+
+#Split data between text and scalar
+N = None if avg_test_loss < float(torch.mean(y_test)) else batch_size #evaluate the full set only if it performs good
+X_text_eval,_, X_num_eval,_,_,_ = split_data(eval_data, N_sample=N, train_size=0)
+#vectorize
+X_text_eval_ids, X_text_eval_masks = texts_to_sequences(X_text_eval, vocab, tokenizer, seq_length)
+
+# Disable gradient computation for inference
+with open("gbr_predictions.txt", 'w') as f:
+    writer = csv.writer(f)
+    writer.writerow(["TweetID", "NoRetweets"])
+    with torch.no_grad():
+        # Loop over the dataset in batches
+        for start_idx in range(0, len(X_text_eval), batch_size):
+            end_idx = min(start_idx + batch_size, len(X_text_eval))
+
+            # Slice out the current batch and move tensors to the correct device
+            batch_ids   = X_text_eval_ids[start_idx:end_idx].to(device)
+            batch_masks = X_text_eval_masks[start_idx:end_idx].to(device)
+            batch_num   = X_num_eval[start_idx:end_idx].to(device)
+
+            # Run the model on this batch
+            y_pred_batch = model([batch_ids, batch_masks], batch_num)
+
+            # Move predictions back to CPU for writing
+            y_pred_batch = y_pred_batch.cpu()
+
+            # Write each prediction to the CSV file
+            for i, pred in enumerate(y_pred_batch):
+                absolute_idx = start_idx + i
+                tweet_id = eval_data["id"].iloc[absolute_idx]
+                writer.writerow([str(tweet_id), str(float(pred))])

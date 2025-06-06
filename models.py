@@ -2,6 +2,36 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from transformers import DistilBertModel
+import torch
+import utils
+
+
+class myDistilBert(nn.Module):
+    def __init__(self, model_name="distilbert-base-uncased", hidden_dim=32, output_dim=2):
+        super(myDistilBert, self).__init__()
+        self.bert = DistilBertModel.from_pretrained(model_name)
+        
+        # Freeze BERT layers
+        for param in self.bert.parameters():
+            param.requires_grad = False
+
+        # Custom regression/classification head
+        self.head = nn.Sequential(
+            nn.Linear(768, hidden_dim), #BERT outputs in dim 768 
+            nn.ReLU(),
+            nn.Linear(hidden_dim, output_dim), 
+            nn.Softplus()  # Ensure output is strictly positive
+        )
+
+        utils.randomize_model_weights(self.head)
+
+    def forward(self, input_ids, attention_mask=None):
+        #print("[DEBUG]", input_ids.device)
+        outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+        pooled_output = outputs.last_hidden_state[:, 0]  
+        positive_int_output = self.head(pooled_output)
+        return positive_int_output  
 
 def MLP(input_dim, hidden_dims, output_dim):
     """

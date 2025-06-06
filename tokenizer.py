@@ -4,11 +4,13 @@ import re
 import string
 from collections import Counter
 import pandas as pd
+from transformers import DistilBertTokenizer
 # --- Tokenization and Vocabulary Helper Functions ---
 PAD_TOKEN = '<pad>'
 UNK_TOKEN = '<unk>'
 
 
+bertTokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
 
 def hashtag_tokenizer(text):
     if pd.isna(text):
@@ -87,3 +89,15 @@ def texts_to_sequences(texts, vocab, tokenizer_fn, max_seq_len):
         padding_masks.append(padding_mask)
 
     return torch.tensor(sequences, dtype=torch.long), torch.tensor(padding_masks, dtype=torch.bool)
+
+def texts_to_sequences_bert(texts):
+    """Converts dataframe of texts to sequences of token IDs using distilbert tokenizer."""
+    bertTokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
+
+    text_seq = ['']*len(texts)
+
+    for k in range(len(texts)):
+        text_seq[k] = stringFlatten(texts.iloc[k].to_list())
+
+    ids = bertTokenizer(text_seq, padding= True, truncation = True, return_tensors = 'pt')
+    return ids

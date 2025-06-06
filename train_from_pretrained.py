@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 from torch import optim
 
-from models import finalModel, myLSTM, MLP
+from models import finalModel, myLSTM, MLP, myDistilBert
 from tokenizer import *
 from utils import *
 
@@ -22,9 +22,8 @@ print(f"Using device: {device}")
 # Global hyperparameters
 # 
 learning_rate = 0.1
-batch_size = 64
-epochs = 10
-tokenizer = clean_tokenizer
+batch_size = 128
+epochs = 1
 
 # Hyperparameters for regressor
 mlp_hidden = [16]
@@ -35,10 +34,9 @@ dropout_rate = 0.1
 seq_length = 50 # 280 characters, so about 5 characters / tokens
 embedding_dim = 64
 
-lstm_hidden_dim = 64
-lstm_layers = 2
-lstm_output_dim = 2
-output_dim = 16 #arbitraire
+interpretor_hidden_dim = 32
+interpretor_layers = 2
+interpretor_output_dim = 4
 max_vocab_size = 10000
 
 #1 - Data import (from baseline)
@@ -46,39 +44,28 @@ max_vocab_size = 10000
 train_data = pd.read_csv("/home/maloe/dev/SPEIT/Deep Learning/project/data/train.csv")
 
 # Data truncation (for ressources)
-N_sample = min(10000, len(train_data))
+N_sample = min(1000, len(train_data))
 
 X_text_train, X_text_test, X_num_train, X_num_test, y_train, y_test = split_data(train_data, N_sample)
 #2 - Convert text to vectorized representation
 
 
-#Build vocabulary from training text strings
-print("Building vocabulary...")
-vocab = build_vocab(X_text_train, tokenizer, vocab_size)
-vocab = {key: value[0] for key, value in vocab.items()} #discard the tokens frequency
-vocab_size = len(vocab) # actual vocab size
 
-# Convert text strings to sequences of token IDs and padding masks
+# Convert text strings to sequences of token IDs tensors with bert tokenizer
 print("Converting texts to sequences...")
-X_text_train_ids, X_text_train_masks = texts_to_sequences(X_text_train, vocab, tokenizer, seq_length)
-X_text_test_ids, X_text_test_masks = texts_to_sequences(X_text_test, vocab, tokenizer, seq_length)
+X_text_train_ids= texts_to_sequences_bert(X_text_train)
+X_text_test_ids = texts_to_sequences_bert(X_text_test)
 
 
 numerical_vec_dim = X_num_train.shape[1]
     
-textInterpretor = myLSTM(vocab_size,
-                        embedding_dim=embedding_dim,
-                        hidden_dim= lstm_hidden_dim,
-                        output_dim = lstm_output_dim,
-                        num_layers = lstm_layers,
-                        bidirectional= False,
-                        padding_idx= vocab['<pad>']).to(device)
-regressor = MLP(lstm_output_dim + numerical_vec_dim,
+textInterpretor = lambda inputs : myDistilBert(hidden_dim= interpretor_hidden_dim, output_dim=interpretor_output_dim).to(device)(**inputs) ##takes tokens id dicts as an input
+regressor = MLP(interpretor_output_dim + numerical_vec_dim,
                 mlp_hidden,
                 1).to(device)
 
 model = finalModel(textInterpretor, regressor).to(device)
-randomize_model_weights(model) #to avoid having the model start at 0
+randomize_model_weights(regressor) #to avoid having the model start at 0
 
 optimizer = optim.Adam(model.parameters(recurse=True), lr=learning_rate)
 
@@ -101,12 +88,14 @@ for epoch in range(epochs):
         optimizer.zero_grad()
 
         X_num_batch = X_num_train[i:i+batch_size].to(device)
-        X_text_ids_batch = X_text_train_ids[i:i+batch_size].to(device) # (batch, seq_len)
-        X_text_masks_batch = X_text_train_masks[i:i+batch_size].to(device) # (batch, seq_len)
+
+        X_text_ids_batch = X_text_train_ids[i:i+batch_size] # (batch, seq_len)
+        X_text_ids_batch = {k: v.to(device) for k, v in X_text_ids_batch.items()}
+
         y_batch = y_train[i:i+batch_size].to(device).float()
         
 
-        output = model((X_text_ids_batch, X_text_masks_batch),
+        output = model(X_text_ids_batch,
                        X_num_batch,
                        ).flatten()
         loss = loss_function(output, y_batch)
@@ -115,6 +104,7 @@ for epoch in range(epochs):
 
         current_epoch_total_loss += loss.item() * output.size(0) # loss.item() is avg loss for batch
         num_samples_processed_epoch += output.size(0)
+
 
     avg_epoch_loss = current_epoch_total_loss / num_samples_processed_epoch
     train_losses_epoch.append(np.sqrt(avg_epoch_loss))
@@ -141,12 +131,13 @@ num_total_test_samples = y_test.shape[0]
 with torch.no_grad(): 
     for i in range(0, num_total_test_samples, batch_size):
         X_num_batch = X_num_test[i:i+batch_size].to(device)
-        X_text_ids_batch = X_text_test_ids[i:i+batch_size].to(device) # (batch, seq_len)
-        X_text_masks_batch = X_text_test_masks[i:i+batch_size].to(device) # (batch, seq_len)
+        X_text_ids_batch = X_text_test_ids[i:i+batch_size] # (batch, seq_len)
+        X_text_ids_batch = {k: v.to(device) for k, v in X_text_ids_batch.items()}
+
         y_batch = y_test[i:i+batch_size].to(device).float()
         
 
-        output = model([X_text_ids_batch, X_text_masks_batch],
+        output = model(X_text_ids_batch,
                        X_num_batch
                        ).flatten()
         loss = loss_function(output, y_batch)
@@ -168,6 +159,7 @@ plt.xlabel("Number of Epochs")
 plt.ylabel("Loss")
 plt.legend()
 plt.grid(True, which="both", ls="--", alpha=0.5)
+plt.savefig("training.png")
 #plt.show()
 
 
@@ -183,7 +175,7 @@ with open("gbr_predictions.txt", 'w') as f:
 N = None if avg_test_loss < float(torch.mean(y_test)) else batch_size #evaluate the full set only if it performs good
 X_text_eval,_, X_num_eval,_,_,_ = split_data(eval_data, N_sample=N, train_size=0)
 #vectorize
-X_text_eval_ids, X_text_eval_masks = texts_to_sequences(X_text_eval, vocab, tokenizer, seq_length)
+X_text_eval_ids= texts_to_sequences_bert(X_text_eval)
 
 # Disable gradient computation for inference
 with open("gbr_predictions.txt", 'w') as f:
@@ -195,12 +187,12 @@ with open("gbr_predictions.txt", 'w') as f:
             end_idx = min(start_idx + batch_size, len(X_text_eval))
 
             # Slice out the current batch and move tensors to the correct device
-            batch_ids   = X_text_eval_ids[start_idx:end_idx].to(device)
-            batch_masks = X_text_eval_masks[start_idx:end_idx].to(device)
+            batch_ids   = X_text_eval_ids[start_idx:end_idx]
+            batch_ids = {k: v.to(device) for k,v in batch_ids.items()}
             batch_num   = X_num_eval[start_idx:end_idx].to(device)
 
             # Run the model on this batch
-            y_pred_batch = model([batch_ids, batch_masks], batch_num)
+            y_pred_batch = model(batch_ids, batch_num)
 
             # Move predictions back to CPU for writing
             y_pred_batch = y_pred_batch.cpu()

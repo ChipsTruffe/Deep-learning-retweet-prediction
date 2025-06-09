@@ -1,27 +1,32 @@
 import pandas as pd
 import csv
-from data_utils import process_text_and_features
-from tensorflow.keras.models import load_model
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.preprocessing import StandardScaler
 import joblib
+from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from data_utils import preprocess_extra_features
 
-# Charger les objets nécessaires
-model = load_model("simple/simple_model.keras")
-vectorizer = joblib.load("simple/tfidf_vectorizer.pkl")
-scaler = joblib.load("simple/scaler.pkl")
+# 1. Charger le modèle et les objets
+model = load_model("/home/julien/DL/Deep-learning-retweet-prediction/simple/simple_model.keras")
+tokenizer = joblib.load("/home/julien/DL/Deep-learning-retweet-prediction/simple/tokenizer.pkl")
+scaler = joblib.load("/home/julien/DL/Deep-learning-retweet-prediction/simple/scaler.pkl")
 
-# Charger les données
-eval_data = pd.read_csv("data/evaluation.csv")
+# 2. Charger les données d’évaluation
+eval_data = pd.read_csv("/home/julien/DL/data/evaluation.csv")
 
-# Transformer les données
-X_eval_final, _, _ = process_text_and_features(eval_data, vectorizer, scaler)
+# 3. Prétraitement texte
+X_eval_seq = tokenizer.texts_to_sequences(eval_data["text"])
+X_eval_pad = pad_sequences(X_eval_seq, maxlen=100, padding="post")  # même maxlen qu’en train
 
-# Prédictions
-predictions = model.predict(X_eval_final).flatten()
+# 4. Prétraitement des features numériques
+X_eval_extra_raw = preprocess_extra_features(eval_data)
+X_eval_extra_scaled = scaler.transform(X_eval_extra_raw)
 
-# Sauvegarde des résultats
-with open("simple/keras_predictions.csv", 'w') as f:
+# 5. Prédictions
+predictions = model.predict([X_eval_pad, X_eval_extra_scaled]).flatten()
+
+# 6. Sauvegarde au format Kaggle
+with open("/home/julien/DL/Deep-learning-retweet-prediction/simple/keras_predictions.csv", 'w') as f:
+    print("Saving predictions to simple/keras_predictions.csv")
     writer = csv.writer(f)
     writer.writerow(["TweetID", "NoRetweets"])
     for idx, pred in enumerate(predictions):

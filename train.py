@@ -1,96 +1,103 @@
-import time
-import networkx as nx
-import numpy as np
-import scipy.sparse as sp
+import pandas as pd
 from sklearn.model_selection import train_test_split
-import torch
-import torch.nn as nn
-from torch import optim
-from datasetAnalysis import import_numerical_data
-from models import MLP
+from sklearn.preprocessing import StandardScaler
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.callbacks import ModelCheckpoint
 import matplotlib.pyplot as plt
+import joblib
 
-# Initializes device
-device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+import nltk
+from nltk.corpus import stopwords
 
-# Hyperparameters
-epochs = 20
-batch_size = 64
-n_hidden_1 = 6
-n_hidden_2 = 6
-n_hidden_3 = 6
-learning_rate = 0.005
+from data_utils import preprocess_extra_features
+from model import build_model_with_embedding
+print("charging datasets and model ...")
 
-X,y = import_numerical_data("/home/maloe/dev/SPEIT/Deep Learning/project/data/train.csv")
-
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1)
-
-
-N_train = min(100000,len(X_train))
-N_test = min(10000, len(X_test))
-
-X_train = X_train[:N_train]
-y_train = y_train[:N_train]
-X_test = X_test[:N_test]
-y_test = y_test[:N_test]
-
-# Initializes model and optimizer
-model = MLP(X_train.shape[1],[n_hidden_1,n_hidden_2,n_hidden_3],1).to(device)
-optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-loss_function = nn.L1Loss()
-
-# Trains the model
-losses = [0]*epochs
-for epoch in range(epochs):
-    t = time.time()
-    model.train()
-
-    train_loss = 0
-    count = 0
-    for i in range(0, N_train, batch_size):
-        X_batch = X_train[i:i+batch_size].to(device)
-        y_batch = y_train[i:i+batch_size].to(device)
-
-        optimizer.zero_grad()
-        output = model(X_batch).flatten()
-        loss = loss_function(output, y_batch)
-        loss.backward()
-        count += output.size(0)
-        train_loss += loss.item() * output.size(0)
-        losses[epoch] = train_loss / count
-        optimizer.step()
-
-    #if epoch % 10 == 0:
-    if True:
-        print('Epoch: {:04d}'.format(epoch + 1),
-              'L1 Loss: {:.4f}'.format(train_loss / count),
-              #'acc_train: {:.4f}'.format(correct / count),
-              'time: {:.4f}s'.format(time.time() - t))
-
-print('Optimization finished!')
+# Chargement des données
+train_data = pd.read_csv("train.csv")
+X_train, X_val, y_train, y_val = train_test_split(
+    train_data,
+    train_data['retweet_count'],
+    test_size=0.3,
+    random_state=42
+)
 
 
+nltk.download('stopwords')
 
-# Evaluates the model
-model.eval()
-test_loss = 0
-count = 0
-for i in range(0, N_test, batch_size):
-    X_batch = X_test[i:i+batch_size].to(device)
-    y_batch = y_test[i:i+batch_size].to(device)
+stop_words = set(stopwords.words('english'))
 
-    output = model(X_batch).flatten()
-    loss = loss_function(output, y_batch)
-    test_loss += loss.item() * output.size(0)
-    count += output.size(0)
+def remove_stopwords(text):
+    return " ".join(
+        word for word in text.split() 
+        if word.lower() not in stop_words
+    )
 
-print("test loss:",
-      'root MSE: {:.4f}'.format(test_loss / count),
-      'time: {:.4f}s'.format(time.time() - t))
-plt.semilogy(range(epochs),losses)
-plt.title(f"model: MLP, hidden dims :{n_hidden_1,n_hidden_2,n_hidden_3}")
-plt.scatter([epochs],[test_loss / count], label = "test loss", c="r")
-plt.xlabel("number of epochs")
-plt.ylabel("root MSE")
+# Appliquer au DataFrame
+X_train['text_clean'] = X_train['text'].apply(remove_stopwords)
+X_val['text_clean']   = X_val['text'].apply(remove_stopwords)
+
+# --------- TEXTE ---------
+# Tokenizer sur les tweets
+tokenizer = Tokenizer(num_words=10000, oov_token="<OOV>")
+tokenizer.fit_on_texts(X_train["text_clean"])
+
+X_train_seq = tokenizer.texts_to_sequences(X_train["text_clean"])
+X_val_seq   = tokenizer.texts_to_sequences(X_val["text_clean"])
+
+# Padding
+maxlen = 200
+X_train_pad = pad_sequences(X_train_seq, maxlen=maxlen, padding="post")
+X_val_pad   = pad_sequences(X_val_seq,   maxlen=maxlen, padding="post")
+
+# --------- FEATURES NUMÉRIQUES ---------
+X_train_extra_raw = preprocess_extra_features(X_train)
+X_val_extra_raw   = preprocess_extra_features(X_val)
+
+scaler = StandardScaler()
+X_train_extra_scaled = scaler.fit_transform(X_train_extra_raw)
+X_val_extra_scaled   = scaler.transform(X_val_extra_raw)
+
+# --------- MODÈLE ---------
+model = build_model_with_embedding(text_maxlen=maxlen, meta_dim=X_train_extra_scaled.shape[1])
+
+
+checkpoint = ModelCheckpoint(
+    "final_model.keras",
+    monitor="val_loss",
+    save_best_only=True,
+    mode="min",
+    verbose=1
+)
+print("start training ...")
+
+# Entraînement
+history = model.fit(
+    [X_train_pad, X_train_extra_scaled], y_train,
+    validation_data=([X_val_pad, X_val_extra_scaled], y_val),
+    epochs=1,
+    batch_size=256,
+    callbacks=[checkpoint],
+    verbose=2
+)
+
+# Évaluation
+loss, mae = model.evaluate([X_val_pad, X_val_extra_scaled], y_val, verbose=0)
+print(f"Validation MAE = {mae:.4f}")
+
+# Courbes d'apprentissage
+plt.figure()
+plt.plot(history.history['loss'], label='Train MAE')
+plt.plot(history.history['val_loss'], label='Val MAE')
+plt.xlabel('Epoch')
+plt.ylabel('MAE')
 plt.legend()
+plt.savefig("learning_curve.png")
 plt.show()
+
+# Sauvegarde des objets utiles
+joblib.dump(tokenizer, "tokenizer.pkl")
+print("Tokenizer saved ")
+joblib.dump(scaler, "scaler.pkl")
+print("Scaler saved ")

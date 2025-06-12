@@ -76,7 +76,7 @@ print("start training ...")
 history = model.fit(
     [X_train_pad, X_train_extra_scaled], y_train,
     validation_data=([X_val_pad, X_val_extra_scaled], y_val),
-    epochs=1,
+    epochs=20,
     batch_size=256,
     callbacks=[checkpoint],
     verbose=2

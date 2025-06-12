@@ -1,0 +1,4 @@
+data/train.csv
+MLP1.png
+__pycache__/models.cpython-313.pyc
+__pycache__/datasetAnalysis.cpython-313.pyc
